@@ -7,21 +7,20 @@ from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, LabeledPrice
+from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove
 
 # --- LOGGING SOZLASH ---
 logging.basicConfig(level=logging.INFO)
 
-# --- TOKENLARNI SOZLASH ---
+# --- TOKENNI SOZLASH ---
 TOKEN = "8840225514:AAFxpX0uTkVRoQRk7KXaLwKyCpcEGTc-hKQ"
-PAYMENT_PROVIDER_TOKEN = "398062629:TEST:999999999_F91D8F69C042267444B74CC0B3C747757EB0E065" 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
 # ----- RENDER UCHUN VEB-SERVER FUNKSIYASI -----
 async def handle(request):
-    return web.Response(text="Bot 24/7 rejimida muvaffaqiyatli ishlamoqda!")
+    return web.Response(text="Bot 24/7 rejimida va mutlaqo BEPUL ishlamoqda!")
 
 # ----- BAZANI TO'G'RI SOZLASH -----
 def db_init():
@@ -44,8 +43,7 @@ def db_init():
             user_id INTEGER PRIMARY KEY,
             ism TEXT,
             mashina_turi TEXT,
-            telefon TEXT,
-            is_subscribed INTEGER DEFAULT 0 
+            telefon TEXT
         )
     """)
     conn.commit()
@@ -75,11 +73,11 @@ async def cmd_start(message: types.Message, state: FSMContext):
         ]
     ])
     await message.answer(
-        text=f"Assalomu alaykum, {message.from_user.full_name}!\nLogistika botiga xush kelibsiz.\nRolingizni tanlang:",
+        text=f"Assalomu alaykum, {message.from_user.full_name}!\nLogistika botiga xush kelibsiz.\nBot hozircha hamma uchun mutlaqo BEPUL!\n\nRolingizni tanlang:",
         reply_markup=kb
     )
 
-# 🚚 Haydovchi tugmasi bosilganda
+# 🚚 Haydovchi tugmasi bosilganda (TO'LOV OLIB TASHLANDI)
 @dp.callback_query(F.data == "role_driver")
 async def role_driver_clicked(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -87,7 +85,7 @@ async def role_driver_clicked(callback: types.CallbackQuery, state: FSMContext):
     
     conn = sqlite3.connect("logistika.db")
     cursor = conn.cursor()
-    cursor.execute("SELECT ism, is_subscribed FROM haydovchilar WHERE user_id = ?", (user_id,))
+    cursor.execute("SELECT ism FROM haydovchilar WHERE user_id = ?", (user_id,))
     haydovchi = cursor.fetchone()
     conn.close()
     
@@ -98,14 +96,10 @@ async def role_driver_clicked(callback: types.CallbackQuery, state: FSMContext):
         await state.set_state(HaydovchiRegistratsiya.ism)
         return
 
-    ism, is_subscribed = haydovchi
-    if is_subscribed == 0:
-        await send_subscription_invoice(callback.message, user_id)
-        return
-
+    # Ro'yxatdan o'tgan bo'lsa, to'lovsiz to'g'ridan-to'g'ri yuklarni ko'rsatadi
     await show_all_yuklar(callback.message)
 
-# 📦 Yuk egasi tugmasi bosilganda (YANGI QO'SHILDI)
+# 📦 Yuk egasi tugmasi bosilganda
 @dp.callback_query(F.data == "role_owner")
 async def role_owner_clicked(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -114,7 +108,7 @@ async def role_owner_clicked(callback: types.CallbackQuery, state: FSMContext):
     )
     await state.set_state(YukElon.yuk_turi)
 
-# Yuk egasi ma'lumotlarini yig'ish bosqichlari (YANGI QO'SHILDI)
+# Yuk egasi ma'lumotlarini yig'ish
 @dp.message(YukElon.yuk_turi)
 async def get_yuk_turi(message: types.Message, state: FSMContext):
     await state.update_data(yuk_turi=message.text)
@@ -163,36 +157,6 @@ async def get_yuk_phone(message: types.Message, state: FSMContext):
     )
     await state.clear()
 
-# 💳 CLICK To'lov hisobi
-async def send_subscription_invoice(message: types.Message, user_id: int):
-    prices = [LabeledPrice(label="1 oylik obuna tarif", amount=4000000)] 
-    await bot.send_invoice(
-        chat_id=user_id,
-        title="Botga 1 oylik obuna",
-        description="Mavjud barcha yuk e'lonlarini 1 oy davomida cheksiz va xatosiz ko'rish imkoniyati.",
-        provider_token=PAYMENT_PROVIDER_TOKEN,
-        currency="UZS",
-        prices=prices,
-        start_parameter="subscription_payment",
-        payload="month_subscription"
-    )
-
-@dp.pre_checkout_query()
-async def pre_checkout_query_handler(pre_checkout_query: types.PreCheckoutQuery):
-    await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
-
-@dp.message(F.successful_payment)
-async def successful_payment_handler(message: types.Message):
-    user_id = message.from_user.id
-    conn = sqlite3.connect("logistika.db")
-    cursor = conn.cursor()
-    cursor.execute("UPDATE haydovchilar SET is_subscribed = 1 WHERE user_id = ?", (user_id,))
-    conn.commit()
-    conn.close()
-    await message.answer(
-        "🎉 To'lovingiz muvaffaqiyatli qabul qilindi!\nSizning 1 oylik obunangiz faollashdi.\n\nQaytadan /start bosing!"
-    )
-
 # Haydovchi ro'yxatdan o'tish bosqichlari
 @dp.message(HaydovchiRegistratsiya.ism)
 async def get_driver_name(message: types.Message, state: FSMContext):
@@ -221,15 +185,15 @@ async def get_driver_phone(message: types.Message, state: FSMContext):
     conn = sqlite3.connect("logistika.db")
     cursor = conn.cursor()
     cursor.execute("""
-        INSERT OR REPLACE INTO haydovchilar (user_id, ism, mashina_turi, telefon, is_subscribed)
-        VALUES (?, ?, ?, ?, 0)
+        INSERT OR REPLACE INTO haydovchilar (user_id, ism, mashina_turi, telefon)
+        VALUES (?, ?, ?, ?)
     """, (message.from_user.id, data['ism'], data['mashina_turi'], user_phone))
     conn.commit()
     conn.close()
     
-    await message.answer(f"🎉 Rahmat, {data['ism']}! Ro'yxatdan muvaffaqiyatli o'tdingiz.", reply_markup=ReplyKeyboardRemove())
+    await message.answer(f"🎉 Rahmat, {data['ism']}! Ro'yxatdan muvaffaqiyatli o'tdingiz. Endi yuklarni ko'rishingiz mumkin.", reply_markup=ReplyKeyboardRemove())
     await state.clear()
-    await send_subscription_invoice(message, message.from_user.id)
+    await show_all_yuklar(message)
 
 async def show_all_yuklar(message: types.Message):
     conn = sqlite3.connect("logistika.db")
