@@ -79,6 +79,7 @@ async def cmd_start(message: types.Message, state: FSMContext):
         reply_markup=kb
     )
 
+# 🚚 Haydovchi tugmasi bosilganda
 @dp.callback_query(F.data == "role_driver")
 async def role_driver_clicked(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -104,9 +105,67 @@ async def role_driver_clicked(callback: types.CallbackQuery, state: FSMContext):
 
     await show_all_yuklar(callback.message)
 
+# 📦 Yuk egasi tugmasi bosilganda (YANGI QO'SHILDI)
+@dp.callback_query(F.data == "role_owner")
+async def role_owner_clicked(callback: types.CallbackQuery, state: FSMContext):
+    await callback.answer()
+    await callback.message.answer(
+        "📦 Yangi yuk e'loni berishni boshlaymiz!\n\n1️⃣ **Yukingiz turini kiriting (masalan: Mebel, Mevalar, Qurilish mollari):**"
+    )
+    await state.set_state(YukElon.yuk_turi)
+
+# Yuk egasi ma'lumotlarini yig'ish bosqichlari (YANGI QO'SHILDI)
+@dp.message(YukElon.yuk_turi)
+async def get_yuk_turi(message: types.Message, state: FSMContext):
+    await state.update_data(yuk_turi=message.text)
+    await message.answer("2️⃣ **Yuk qayerdan olinadi? (Viloyat, shahar yoki tumanni yozing):**")
+    await state.set_state(YukElon.qayerdan)
+
+@dp.message(YukElon.qayerdan)
+async def get_qayerdan(message: types.Message, state: FSMContext):
+    await state.update_data(qayerdan=message.text)
+    await message.answer("3️⃣ **Yuk qayerga olib boriladi? (Viloyat, shahar yoki tumanni yozing):**")
+    await state.set_state(YukElon.qayerga)
+
+@dp.message(YukElon.qayerga)
+async def get_qayerga(message: types.Message, state: FSMContext):
+    await state.update_data(qayerga=message.text)
+    await message.answer("4️⃣ **Yo'l haqi (Xizmat narxi qancha? Masalan: 500 000 so'm yoki kelishiladi):**")
+    await state.set_state(YukElon.narxi)
+
+@dp.message(YukElon.narxi)
+async def get_narxi(message: types.Message, state: FSMContext):
+    await state.update_data(narxi=message.text)
+    phone_kb = ReplyKeyboardMarkup(keyboard=[
+        [KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]
+    ], resize_keyboard=True, one_time_keyboard=True)
+    await message.answer("5️⃣ **Haydovchilar bog'lanishi uchun telefon raqamingizni yuboring:**", reply_markup=phone_kb)
+    await state.set_state(YukElon.telefon)
+
+@dp.message(YukElon.telefon)
+async def get_yuk_phone(message: types.Message, state: FSMContext):
+    user_phone = message.contact.phone_number if message.contact else message.text
+    data = await state.get_data()
+    username = message.from_user.username or "Mavjud emas"
+    
+    conn = sqlite3.connect("logistika.db")
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO yuklar (user_id, username, yuk_turi, qayerdan, qayerga, narxi, telefon)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, (message.from_user.id, username, data['yuk_turi'], data['qayerdan'], data['qayerga'], data['narxi'], user_phone))
+    conn.commit()
+    conn.close()
+    
+    await message.answer(
+        "🎉 Tabriklaymiz! Yuk e'loningiz muvaffaqiyatli saqlandi va haydovchilarga ko'rinadigan bo'ldi.", 
+        reply_markup=ReplyKeyboardRemove()
+    )
+    await state.clear()
+
+# 💳 CLICK To'lov hisobi
 async def send_subscription_invoice(message: types.Message, user_id: int):
     prices = [LabeledPrice(label="1 oylik obuna tarif", amount=4000000)] 
-    
     await bot.send_invoice(
         chat_id=user_id,
         title="Botga 1 oylik obuna",
@@ -125,19 +184,16 @@ async def pre_checkout_query_handler(pre_checkout_query: types.PreCheckoutQuery)
 @dp.message(F.successful_payment)
 async def successful_payment_handler(message: types.Message):
     user_id = message.from_user.id
-    
     conn = sqlite3.connect("logistika.db")
     cursor = conn.cursor()
     cursor.execute("UPDATE haydovchilar SET is_subscribed = 1 WHERE user_id = ?", (user_id,))
     conn.commit()
     conn.close()
-    
     await message.answer(
-        "🎉 To'lovingiz muvaffaqiyatli qabul qilindi!\n"
-        "Sizning 1 oylik obunangiz faollashdi. Endi yuklarni bemalol ko'rishingiz mumkin.\n\n"
-        "Qaytadan /start bosing va yuklarni ko'rishga o'ting!"
+        "🎉 To'lovingiz muvaffaqiyatli qabul qilindi!\nSizning 1 oylik obunangiz faollashdi.\n\nQaytadan /start bosing!"
     )
 
+# Haydovchi ro'yxatdan o'tish bosqichlari
 @dp.message(HaydovchiRegistratsiya.ism)
 async def get_driver_name(message: types.Message, state: FSMContext):
     await state.update_data(ism=message.text)
@@ -184,7 +240,7 @@ async def show_all_yuklar(message: types.Message):
     conn.close()
     
     if not yuklar:
-        await message.answer("😔 Hozircha tizimda faol yuk e'lonlari mavjud emas.")
+        await message.answer("😔 Hozircha tizimda faol yuk e'lonlari ma'lumotlari mavjud emas.")
         return
     
     await message.answer("🚚 **Tizimdagi mavjud faol yuklar ro'yxati:**\n" + "—" * 20)
@@ -215,7 +271,6 @@ async def show_all_yuklar(message: types.Message):
 
 # ----- ASOSIY ISHGA TUSHIRISH QISMI -----
 async def main():
-    # ---- Render port xatosini tuzatish (Veb-serverni ishga tushirish) ----
     app = web.Application()
     app.router.add_get('/', handle)
     runner = web.AppRunner(app)
@@ -224,11 +279,8 @@ async def main():
     port = int(os.environ.get("PORT", 10000))
     site = web.TCPSite(runner, "0.0.0.0", port)
     await site.start()
-    # ------------------------------------------------------------------
 
-    # Botni polling rejimida ishga tushirish
     await dp.start_polling(bot)
 
 if __name__ == '__main__':
     asyncio.run(main())
-
