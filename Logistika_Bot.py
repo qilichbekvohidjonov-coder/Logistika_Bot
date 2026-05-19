@@ -1,27 +1,32 @@
+import os
 import asyncio
 import logging
 import sqlite3
+from aiohttp import web
 from aiogram import Bot, Dispatcher, types, F
 from aiogram.filters import CommandStart
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.context import FSMContext
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, LabeledPrice
 
-# --- TOKEnLARNI SOZLASH ---
-# Telegram Bot Tokenini bu yerga yozing
-TOKEN = "8840225514:AAFxpX0uTkVRoQRk7KXaLwKyCpcEGTc-hKQ"
+# --- LOGGING SOZLASH ---
+logging.basicConfig(level=logging.INFO)
 
-# BotFather'dan olingan CLICK Terminal Test tokeni
+# --- TOKENLARNI SOZLASH ---
+TOKEN = "8840225514:AAFxpX0uTkVRoQRk7KXaLwKyCpcEGTc-hKQ"
 PAYMENT_PROVIDER_TOKEN = "398062629:TEST:999999999_F91D8F69C042267444B74CC0B3C747757EB0E065" 
 
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
+# ----- RENDER UCHUN VEB-SERVER FUNKSIYASI -----
+async def handle(request):
+    return web.Response(text="Bot 24/7 rejimida muvaffaqiyatli ishlamoqda!")
+
 # ----- BAZANI TO'G'RI SOZLASH -----
 def db_init():
     conn = sqlite3.connect("logistika.db")
     cursor = conn.cursor()
-    # Yuklar jadvali
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS yuklar (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +39,6 @@ def db_init():
             telefon TEXT
         )
     """)
-    # Haydovchilar jadvali (obuna holati bilan)
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS haydovchilar (
             user_id INTEGER PRIMARY KEY,
@@ -48,7 +52,6 @@ def db_init():
     conn.close()
 
 db_init()
-# ---------------------------------
 
 class YukElon(StatesGroup):
     yuk_turi = State()
@@ -62,7 +65,6 @@ class HaydovchiRegistratsiya(StatesGroup):
     mashina_turi = State()
     telefon = State()
 
-# /start buyrug'i
 @dp.message(CommandStart())
 async def cmd_start(message: types.Message, state: FSMContext):
     await state.clear()
@@ -77,7 +79,6 @@ async def cmd_start(message: types.Message, state: FSMContext):
         reply_markup=kb
     )
 
-# 🚚 Haydovchi tugmasi (Obunani tekshirish bilan)
 @dp.callback_query(F.data == "role_driver")
 async def role_driver_clicked(callback: types.CallbackQuery, state: FSMContext):
     await callback.answer()
@@ -96,18 +97,14 @@ async def role_driver_clicked(callback: types.CallbackQuery, state: FSMContext):
         await state.set_state(HaydovchiRegistratsiya.ism)
         return
 
-    # Agar obunasi bo'lmasa to'lov hisobini (Invoice) yuboramiz
     ism, is_subscribed = haydovchi
     if is_subscribed == 0:
         await send_subscription_invoice(callback.message, user_id)
         return
 
-    # Obunasi bo'lsa yuklarni ko'rsatamiz
     await show_all_yuklar(callback.message)
 
-# 💳 CLICK To'lov hisobini yuborish funksiyasi
 async def send_subscription_invoice(message: types.Message, user_id: int):
-    # Obuna narxi: 40 000 so'm (oxiriga ikkita nol tiyinlar uchun)
     prices = [LabeledPrice(label="1 oylik obuna tarif", amount=4000000)] 
     
     await bot.send_invoice(
@@ -121,12 +118,10 @@ async def send_subscription_invoice(message: types.Message, user_id: int):
         payload="month_subscription"
     )
 
-# To'lovdan oldingi majburiy tekshiruv (Telegram talabi)
 @dp.pre_checkout_query()
 async def pre_checkout_query_handler(pre_checkout_query: types.PreCheckoutQuery):
     await bot.answer_pre_checkout_query(pre_checkout_query.id, ok=True)
 
-# To'lov muvaffaqiyatli amalga oshganda obunani faollashtirish
 @dp.message(F.successful_payment)
 async def successful_payment_handler(message: types.Message):
     user_id = message.from_user.id
@@ -143,7 +138,6 @@ async def successful_payment_handler(message: types.Message):
         "Qaytadan /start bosing va yuklarni ko'rishga o'ting!"
     )
 
-# Haydovchi ro'yxatdan o'tish bosqichlari
 @dp.message(HaydovchiRegistratsiya.ism)
 async def get_driver_name(message: types.Message, state: FSMContext):
     await state.update_data(ism=message.text)
@@ -179,11 +173,8 @@ async def get_driver_phone(message: types.Message, state: FSMContext):
     
     await message.answer(f"🎉 Rahmat, {data['ism']}! Ro'yxatdan muvaffaqiyatli o'tdingiz.", reply_markup=ReplyKeyboardRemove())
     await state.clear()
-    
-    # Ro'yxatdan o'tishi bilan unga CLICK to'lov hisobini chiqaramiz
     await send_subscription_invoice(message, message.from_user.id)
 
-# 📋 YUKLARNI XATOSIZ CHIQARISH FUNKSIYASI
 async def show_all_yuklar(message: types.Message):
     conn = sqlite3.connect("logistika.db")
     conn.row_factory = sqlite3.Row 
@@ -217,108 +208,27 @@ async def show_all_yuklar(message: types.Message):
             f"📍 **Qayerdan:** {q_dan}\n"
             f"🏁 **Qayerga:** {q_ga}\n"
             f"💰 **Yo'l haqi:** {narx}\n"
-            f"📞 **Telefon:** `{tel}`\n"
-            f"{lichka_matni}\n"
-            f"—" * 20
+            f"📞 **Telefon:** {tel}\n"
+            f"{lichka_matni}"
         )
-        await message.answer(yuk_matni, parse_mode="Markdown")
+        await message.answer(yuk_matni)
 
-# 📦 Yuk egasi bo'limi
-@dp.callback_query(F.data == "role_owner")
-async def start_yuk_elon(callback: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    await callback.answer()
-    await callback.message.answer("1️⃣ **Yukingiz turi nima?**\n(Masalan: Meva, Mebel)", parse_mode="Markdown")
-    await state.set_state(YukElon.yuk_turi)
-
-@dp.message(YukElon.yuk_turi)
-async def get_yuk_turi(message: types.Message, state: FSMContext):
-    await state.update_data(yuk_turi=message.text)
-    await message.answer("2️⃣ **Yuk qayerdan olinadi?**", parse_mode="Markdown")
-    await state.set_state(YukElon.qayerdan)
-
-@dp.message(YukElon.qayerdan)
-async def get_qayerdan(message: types.Message, state: FSMContext):
-    await state.update_data(qayerdan=message.text)
-    await message.answer("3️⃣ **Yuk qayerga yetkazilishi kerak?**", parse_mode="Markdown")
-    await state.set_state(YukElon.qayerga)
-
-@dp.message(YukElon.qayerga)
-async def get_qayerga(message: types.Message, state: FSMContext):
-    await state.update_data(qayerga=message.text)
-    await message.answer("4️⃣ **Xizmat haqi (Kira) qancha berasiz?**", parse_mode="Markdown")
-    await state.set_state(YukElon.narxi)
-
-@dp.message(YukElon.narxi)
-async def get_narxi(message: types.Message, state: FSMContext):
-    await state.update_data(narxi=message.text)
-    phone_kb = ReplyKeyboardMarkup(keyboard=[
-        [KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]
-    ], resize_keyboard=True, one_time_keyboard=True)
-    await message.answer("5️⃣ **Siz bilan bog'lanish uchun telefon raqamingiz?**", reply_markup=phone_kb, parse_mode="Markdown")
-    await state.set_state(YukElon.telefon)
-
-@dp.message(YukElon.telefon)
-async def get_telefon(message: types.Message, state: FSMContext):
-    user_phone = message.contact.phone_number if message.contact else message.text
-    await state.update_data(telefon=user_phone)
-    data = await state.get_data()
-    
-    await message.answer("Rahmat! Ma'lumotlar tayyorlandi.", reply_markup=ReplyKeyboardRemove())
-    
-    elon_text = (
-        "📦 **YANGI YUK E'LONI!**\n\n"
-        f"📦 **Yuk turi:** {data['yuk_turi']}\n"
-        f"📍 **Qayerdan:** {data['qayerdan']}\n"
-        f"🏁 **Qayerga:** {data['qayerga']}\n"
-        f"💰 **Yo'l haqi:** {data['narxi']}\n"
-        f"📞 **Aloqa:** {user_phone}\n\n"
-        "Ma'lumotlar to'g'rimi? Tasdiqlaysizmi?"
-    )
-    tasdiq_kb = InlineKeyboardMarkup(inline_keyboard=[[
-        InlineKeyboardButton(text="✅ Tasdiqlash", callback_data="confirm_yes"),
-        InlineKeyboardButton(text="❌ Bekor quilting", callback_data="confirm_no")
-    ]])
-    await message.answer(elon_text, reply_markup=tasdiq_kb, parse_mode="Markdown")
-
-# ✅ Tasdiqlash
-@dp.callback_query(F.data == "confirm_yes")
-async def confirm_yes_handler(callback: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    if not data:
-        await callback.answer("Xatolik: Ma'lumot topilmadi.", show_alert=True)
-        return
-
-    user_id = callback.from_user.id
-    username = callback.from_user.username
-    
-    conn = sqlite3.connect("logistika.db")
-    cursor = conn.cursor()
-    cursor.execute("""
-        INSERT INTO yuklar (user_id, username, yuk_turi, qayerdan, qayerga, narxi, telefon)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    """, (user_id, str(username), data['yuk_turi'], data['qayerdan'], data['qayerga'], data['narxi'], data['telefon']))
-    conn.commit()
-    conn.close()
-    
-    await callback.answer("E'lon bazaga saqlandi!", show_alert=True)
-    await callback.message.edit_text(text=callback.message.text + "\n\n🟢 **BU E'LON BAZAGA MUVAFFAQIYATLI QO'SHILDI!**", parse_mode="Markdown")
-    await state.clear()
-
-# ❌ Bekor qilish
-@dp.callback_query(F.data == "confirm_no")
-async def confirm_no_handler(callback: types.CallbackQuery, state: FSMContext):
-    await callback.answer("E'lon bekor qilindi", show_alert=True)
-    await callback.message.edit_text(text=callback.message.text + "\n\n🔴 **BU E'LON BEKOR QILINDI!**", parse_mode="Markdown")
-    await state.clear()
-
+# ----- ASOSIY ISHGA TUSHIRISH QISMI -----
 async def main():
-    logging.basicConfig(level=logging.INFO)
-    print("Bot yangi modellar bilan muvaffaqiyatli ishga tushdi...")
+    # ---- Render port xatosini tuzatish (Veb-serverni ishga tushirish) ----
+    app = web.Application()
+    app.router.add_get('/', handle)
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    port = int(os.environ.get("PORT", 10000))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    # ------------------------------------------------------------------
+
+    # Botni polling rejimida ishga tushirish
     await dp.start_polling(bot)
 
-if __name__ == "__main__":
-    try:
-        asyncio.run(main())
-    except KeyboardInterrupt:
-        print("Bot to'xtatildi!")
+if __name__ == '__main__':
+    asyncio.run(main())
+
